@@ -1,11 +1,12 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-import "os"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+	"os"
+)
 
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
@@ -13,7 +14,7 @@ type KeyValue struct {
 	Value string
 }
 
-// use ihash(key) % NReduce to choose the reduce
+// use ihash(key) % nReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
 func ihash(key string) int {
 	h := fnv.New32a()
@@ -22,7 +23,6 @@ func ihash(key string) int {
 }
 
 var coordSockName string // socket for coordinator
-
 
 // main/mrworker.go calls this function.
 func Worker(sockname string, mapf func(string, string) []KeyValue,
@@ -43,13 +43,13 @@ func Worker(sockname string, mapf func(string, string) []KeyValue,
 func CallExample() {
 
 	// declare an argument structure.
-	args := ExampleArgs{}
+	args := TaskArgs{}
 
 	// fill in the argument(s).
 	args.X = 99
 
 	// declare a reply structure.
-	reply := ExampleReply{}
+	reply := TaskReply{}
 
 	// send the RPC request, wait for the reply.
 	// the "Coordinator.Example" tells the

@@ -1,29 +1,42 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"sync"
+	"time"
+)
 
+// 任务的状态
+type TaskState int
+
+const (
+	Idle TaskState = iota
+	Inprogress
+	Finished
+)
+
+// 任务定义
+type Task struct {
+	TaskID    int
+	TaskName  string
+	TaskPhase TaskType
+	State     TaskState
+	Attempt   int
+	Starttime time.Time
+}
 
 type Coordinator struct {
-	// Your definitions here.
-
+	mu      sync.Mutex
+	Map     []Task
+	Reduce  []Task
+	nReduce int
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
-
-
-// start a thread that listens for RPCs from worker.go
+// RPC接口开始监听
 func (c *Coordinator) server(sockname string) {
 	rpc.Register(c)
 	rpc.HandleHTTP()
@@ -35,26 +48,109 @@ func (c *Coordinator) server(sockname string) {
 	go http.Serve(l, nil)
 }
 
-// main/mrcoordinator.go calls Done() periodically to find out
-// if the entire job has finished.
+// 询问有没有完成
 func (c *Coordinator) Done() bool {
 	ret := false
 
 	// Your code here.
 
-
 	return ret
 }
 
-// create a Coordinator.
-// main/mrcoordinator.go calls this function.
-// nReduce is the number of reduce tasks to use.
+// 建立任务表
 func MakeCoordinator(sockname string, files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
-	// Your code here.
-
+	// 创建Map任务
+	for i, f := range files {
+		c.Map = append(c.Map, Task{
+			TaskID:    i,
+			TaskName:  f,
+			TaskPhase: MapType,
+			State:     Idle,
+		})
+	}
+	//创建reduce任务
+	c.nReduce = nReduce
+	for j := 0; j < nReduce; j++ {
+		c.Reduce = append(c.Reduce, Task{
+			TaskID:    j,
+			TaskPhase: ReduceType,
+			State:     Idle,
+			TaskName:  "",
+		})
+	}
 
 	c.server(sockname)
 	return &c
+}
+
+// ===
+func (c *Coordinator) checkTimeout(tasks []Task) {
+	for i := range tasks {
+		if tasks[i].State == Inprogress && time.Since(tasks[i].Starttime) > 10*time.Second { //超时
+			tasks[i].State = Idle
+		}
+	}
+}
+func (c *Coordinator) selectTask(tasks []Task) int {
+	for i := range tasks {
+		if tasks[i].State == Idle {
+			return i
+		}
+	}
+	return -1
+}
+func (c *Coordinator) mapDone() bool {
+	for _, task := range c.Map {
+		if task.State != Finished {
+			return false
+		}
+	}
+	return true
+}
+func (c *Coordinator) reduceDone() bool {
+	for _, task := range c.Reduce {
+		if task.State != Finished {
+			return false
+		}
+	}
+	return true
+}
+
+// 发任务
+func (c *Coordinator) GetTask(args *TaskArgs, reply *TaskReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock() //自动管理生命周期
+	//检查超时
+	c.checkTimeout(c.Map)
+	c.checkTimeout(c.Reduce)
+
+	if !c.mapDone() {
+		//map阶段
+		if index := c.selectTask(c.Map); index >= 0 {
+			//map改完
+			c.Map[index].State = Inprogress
+			c.Map[index].Attempt++
+			c.Map[index].Starttime = time.Now()
+			//改reply
+			reply.TaskID = index
+			reply.TaskName = c.Map[index].TaskName
+			reply.TaskPhase = MapType
+			reply.NReduce = c.nReduce
+			reply.Attempt = c.Map[index].Attempt
+			return nil
+		}
+	}
+	if !c.reduceDone() {
+		if i := c.selectTask(c.Reduce); i >= 0 {
+			//reduce阶段
+		}
+	}
+
+}
+
+// 核对后标记完成
+func (c *Coordinator) ReportTask(report TaskReport) error {
+
 }

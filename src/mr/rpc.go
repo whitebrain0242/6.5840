@@ -1,23 +1,34 @@
 package mr
 
-//
-// RPC definitions.
-//
-// remember to capitalize all names.
-//
+type TaskType int
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
+const (
+	MapType TaskType = iota
+	ReduceType
+	WaitType
+	DoneType
+)
 
-type ExampleArgs struct {
-	X int
+// 这个是workern向con申请任务
+type TaskArgs struct {
 }
 
-type ExampleReply struct {
-	Y int
+// 这个是co向worker分配任务
+type TaskReply struct {
+	TaskID    int
+	TaskName  string
+	TaskPhase TaskType
+	NReduce   int
+	Attempt   int //分配次数
 }
 
-// Add your RPC definitions here.
+// 这各是worker完成任务的时候向co发送
+type TaskReport struct {
+	TaskID    int
+	TaskPhase TaskType
+	Attempt   int
+	Success   bool
+}
 
+// 这个是co受到wo发送的完成任务的i回复
+type TaskResult struct{}
