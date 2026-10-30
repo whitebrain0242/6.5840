@@ -19,6 +19,7 @@ type TaskReply struct {
 	TaskName  string
 	TaskPhase TaskType
 	NReduce   int
+	NMap      int
 	Attempt   int //分配次数
 }
 
@@ -27,7 +28,7 @@ type TaskReport struct {
 	TaskID    int
 	TaskPhase TaskType
 	Attempt   int
-	Success   bool
+	Success   bool //这个i 就是用来判断这次任务有没有成功
 }
 
 // 这个是co受到wo发送的完成任务的i回复

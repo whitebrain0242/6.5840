@@ -139,18 +139,76 @@ func (c *Coordinator) GetTask(args *TaskArgs, reply *TaskReply) error {
 			reply.TaskPhase = MapType
 			reply.NReduce = c.nReduce
 			reply.Attempt = c.Map[index].Attempt
-			return nil
+			reply.NMap = len(c.Map)
+
+		} else {
+			reply.TaskPhase = WaitType
 		}
+		return nil
 	}
 	if !c.reduceDone() {
 		if i := c.selectTask(c.Reduce); i >= 0 {
 			//reduce阶段
+			c.Reduce[i].State = Inprogress
+			c.Reduce[i].Attempt++
+			c.Reduce[i].Starttime = time.Now()
+			//改reply
+			reply.TaskID = i
+			reply.TaskPhase = ReduceType
+			reply.Attempt = c.Reduce[i].Attempt
+			reply.NMap = len(c.Map) //决定读几个中间文件
+			reply.NReduce = c.nReduce
+		} else {
+			reply.TaskPhase = WaitType
 		}
+		return nil
 	}
-
+	reply.TaskPhase = DoneType
+	return nil
 }
 
 // 核对后标记完成
-func (c *Coordinator) ReportTask(report TaskReport) error {
+func (c *Coordinator) ReportTask(report *TaskReport, result *TaskResult) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
+	if report.TaskPhase == MapType {
+		//map任务
+		if report.TaskID < 0 || report.TaskID > len(c.Map)-1 {
+			return nil
+		}
+		if c.Map[report.TaskID].Attempt != report.Attempt {
+			return nil
+		}
+		if c.Map[report.TaskID].State == Finished {
+			return nil
+		}
+		if report.Success && c.Map[report.TaskID].State == Inprogress {
+			c.Map[report.TaskID].State = Finished
+		}
+		if !report.Success {
+			c.Map[report.TaskID].State = Idle
+		}
+
+	} else if report.TaskPhase == ReduceType {
+		//reduce任务
+		if report.TaskID < 0 || report.TaskID > len(c.Reduce)-1 {
+			return nil
+		}
+		if c.Reduce[report.TaskID].Attempt != report.Attempt {
+			return nil
+		}
+		if c.Reduce[report.TaskID].State == Finished {
+			return nil
+		}
+		//要先判断是不是当前worker手里的，如果不是并且s失败了，那么结果就不能作为参考
+		if report.Success && c.Reduce[report.TaskID].State == Inprogress {
+			c.Reduce[report.TaskID].State = Finished
+		}
+		if !report.Success {
+			c.Reduce[report.TaskID].State = Idle
+		}
+
+	}
+	return nil
 }
