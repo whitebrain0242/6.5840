@@ -50,11 +50,15 @@ func (c *Coordinator) server(sockname string) {
 
 // 询问有没有完成
 func (c *Coordinator) Done() bool {
-	ret := false
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, task := range c.Reduce {
+		if task.State != Finished {
+			return false
+		}
+	}
+	return true
 
-	// Your code here.
-
-	return ret
 }
 
 // 建立任务表

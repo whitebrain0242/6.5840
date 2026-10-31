@@ -46,7 +46,7 @@ func CallExample() {
 	args := TaskArgs{}
 
 	// fill in the argument(s).
-	args.X = 99
+	//args.X = 99
 
 	// declare a reply structure.
 	reply := TaskReply{}
@@ -58,7 +58,7 @@ func CallExample() {
 	ok := call("Coordinator.Example", &args, &reply)
 	if ok {
 		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
+		//fmt.Printf("reply.Y %v\n", reply.Y)
 	} else {
 		fmt.Printf("call failed!\n")
 	}
