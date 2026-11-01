@@ -192,3 +192,58 @@ func TestMapTaskWritesNReduceJSONBuckets(t *testing.T) {
 		}
 	}
 }
+func TestReduceTaskGroupsSortedKeys(t *testing.T) {
+	dir := t.TempDir()
+	oldwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	// 两份中间文件，共同包含 a,a,b
+	writeKV := func(name string, kvs []KeyValue) {
+		f, err := os.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		enc := json.NewEncoder(f)
+		for i := range kvs {
+			if err := enc.Encode(&kvs[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f.Close()
+	}
+	writeKV("mr-0-1", []KeyValue{{"a", "1"}, {"b", "1"}})
+	writeKV("mr-1-1", []KeyValue{{"a", "1"}})
+
+	calls := map[string]int{}
+	reducef := func(key string, values []string) string {
+		calls[key]++
+		return fmt.Sprintf("%d", len(values))
+	}
+
+	task := TaskReply{
+		TaskPhase: ReduceType,
+		TaskID:    1,
+		NMap:      2,
+		NReduce:   3,
+	}
+	if !runReduceTask(task, reducef) {
+		t.Fatalf("runReduceTask 应返回 true")
+	}
+
+	data, err := os.ReadFile("mr-out-1")
+	if err != nil {
+		t.Fatalf("缺少 mr-out-1: %v", err)
+	}
+	got := string(data)
+	want := "a 2\nb 1\n"
+	if got != want {
+		t.Fatalf("输出不对\n期望:\n%s\n实际:\n%s", want, got)
+	}
+
+	if calls["a"] != 1 || calls["b"] != 1 {
+		t.Fatalf("每个键应只调一次 reducef，实际 calls=%v", calls)
+	}
+}

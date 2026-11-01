@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
+	"time"
 )
 
 // map和reducea交换的数据
@@ -24,17 +27,34 @@ func ihash(key string) int {
 
 var coordSockName string // socket for coordinator
 
-// main/mrworker.go calls this function.
 func Worker(sockname string, mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	coordSockName = sockname
 
-	// Your worker implementation here.
+	for {
+		reply, ok := requestTask()
+		if !ok {
+			return
+		}
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+		if reply.TaskPhase == MapType {
+			success := runMapTask(reply, mapf)
+			if ok := reportTask(reply, success); !ok {
+				return
+			}
+		} else if reply.TaskPhase == ReduceType {
+			success := runReduceTask(reply, reducef)
+			if ok := reportTask(reply, success); !ok {
+				return
+			}
+		} else if reply.TaskPhase == WaitType {
+			time.Sleep(100 * time.Millisecond)
+		} else if reply.TaskPhase == DoneType {
+			return
+		}
 
+	}
 }
 
 func call(rpcname string, args interface{}, reply interface{}) bool {
@@ -102,6 +122,63 @@ func runMapTask(task TaskReply, mapf func(string, string) []KeyValue) bool {
 			os.Remove(tmp.Name())
 			return false
 		}
+	}
+	return true
+}
+
+// 不需要遍历桶：一个桶输出一个输出文件
+func runReduceTask(task TaskReply, reducef func(string, []string) string) bool {
+	//1,读文件,进行解码
+	var kvs []KeyValue
+	//遍历每一个文件
+	for i := 0; i < task.NMap; i++ {
+		fname := fmt.Sprintf("mr-%d-%d", i, task.TaskID)
+		f, err := os.Open(fname)
+		if err != nil {
+			return false
+		}
+		dec := json.NewDecoder(f)
+		//绑定好解码器,p之后开始解码
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err == io.EOF {
+				break
+			} else if err != nil {
+				f.Close()
+				return false
+			}
+			kvs = append(kvs, kv)
+		}
+		f.Close()
+	}
+	//2.对文件进行排序,按照i名字
+	sort.Slice(kvs, func(i, j int) bool {
+		return kvs[i].Key < kvs[j].Key
+	})
+	//3.创建一个临时文件,然后分组之后调用reducef,写进去
+	tmp, err := os.CreateTemp(".", "mr-out-tmp-*")
+	if err != nil {
+		return false
+	}
+	for i := 0; i < len(kvs); {
+		key := kvs[i].Key
+		var values []string
+		for i < len(kvs) && kvs[i].Key == key {
+			values = append(values, kvs[i].Value)
+			i++
+		}
+		output := reducef(key, values)
+		fmt.Fprintf(tmp, "%v %v\n", key, output)
+	}
+	//4. close + rename
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return false
+	}
+	finalName := fmt.Sprintf("mr-out-%d", task.TaskID)
+	if err := os.Rename(tmp.Name(), finalName); err != nil {
+		os.Remove(tmp.Name())
+		return false
 	}
 	return true
 }
